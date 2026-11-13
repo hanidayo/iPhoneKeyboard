@@ -173,7 +173,7 @@ final class KeyboardViewController: UIInputViewController {
         v.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(v)
         NSLayoutConstraint.activate([
-            v.topAnchor.constraint(equalTo: content.topAnchor),
+            v.topAnchor.constraint(equalTo: content.topAnchor, constant: 3),
             v.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: bottomBleed),
             v.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 3),
             v.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -3),
@@ -210,6 +210,7 @@ final class KeyboardViewController: UIInputViewController {
         r1.add(vowelKey("ㆍ", stroke: ChunjiinEngine.dot, number: "2"))
         r1.add(vowelKey("ㅡ", stroke: ChunjiinEngine.eu, number: "3"))
         r1.add(deleteKey())
+        roundOuterCorners(of: r1)
 
         let r2 = RowView()
         r2.add(consonantKey("ㄱㅋ", cycle: "ㄱㅋㄲ", number: "4"))
@@ -321,6 +322,12 @@ final class KeyboardViewController: UIInputViewController {
         return k
     }
 
+    /// 맨 윗줄 양 끝 키의 바깥 위 모서리를 키보드 둥근 모서리에 맞춰 깎음
+    private func roundOuterCorners(of row: RowView) {
+        (row.subviews.first as? KeyView)?.outerCorners = .topLeft
+        (row.subviews.last as? KeyView)?.outerCorners = .topRight
+    }
+
     // 숫자·기호
     // 숫자·기호 (iOS 순정 배열)
     private static let symbolPages: [[[String]]] = [
@@ -336,6 +343,7 @@ final class KeyboardViewController: UIInputViewController {
 
         let r1 = RowView()
         for ch in page[0] { r1.add(charKey(ch)) }
+        roundOuterCorners(of: r1)
         let r2 = RowView()
         for ch in page[1] { r2.add(charKey(ch)) }
 

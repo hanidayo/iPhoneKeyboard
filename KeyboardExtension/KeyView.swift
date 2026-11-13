@@ -40,6 +40,10 @@ final class KeyView: UIView {
 
     var style: KeyStyle { didSet { updateColors() } }
 
+    /// 키보드 둥근 모서리에 닿는 바깥 모서리 (크게 둥글게 깎아서 키보드 모서리 곡선을 따라감)
+    var outerCorners: UIRectCorner = [] { didSet { setNeedsLayout() } }
+    static let outerCornerRadius: CGFloat = 20
+
     private let titleLabel = UILabel()
     private let hintLabel = UILabel()
     private let iconView = UIImageView()
@@ -119,10 +123,41 @@ final class KeyView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         bg.frame = bounds.insetBy(dx: 3, dy: Self.verticalInset)
+        applyCornerMask()
         titleLabel.frame = bg.bounds.insetBy(dx: 4, dy: 2)
         iconView.frame = bg.bounds
         hintLabel.sizeToFit()
         hintLabel.frame.origin = CGPoint(x: bg.bounds.width - hintLabel.bounds.width - 5, y: 2)
+    }
+
+    private func applyCornerMask() {
+        guard !outerCorners.isEmpty else {
+            bg.layer.mask = nil
+            return
+        }
+        let r = bg.bounds
+        let small: CGFloat = 7
+        let big = min(Self.outerCornerRadius, r.width / 2, r.height / 2)
+        func rad(_ c: UIRectCorner) -> CGFloat { outerCorners.contains(c) ? big : small }
+        let tl = rad(.topLeft), tr = rad(.topRight), br = rad(.bottomRight), bl = rad(.bottomLeft)
+        let p = UIBezierPath()
+        p.move(to: CGPoint(x: r.minX + tl, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX - tr, y: r.minY))
+        p.addArc(withCenter: CGPoint(x: r.maxX - tr, y: r.minY + tr), radius: tr,
+                 startAngle: -.pi / 2, endAngle: 0, clockwise: true)
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - br))
+        p.addArc(withCenter: CGPoint(x: r.maxX - br, y: r.maxY - br), radius: br,
+                 startAngle: 0, endAngle: .pi / 2, clockwise: true)
+        p.addLine(to: CGPoint(x: r.minX + bl, y: r.maxY))
+        p.addArc(withCenter: CGPoint(x: r.minX + bl, y: r.maxY - bl), radius: bl,
+                 startAngle: .pi / 2, endAngle: .pi, clockwise: true)
+        p.addLine(to: CGPoint(x: r.minX, y: r.minY + tl))
+        p.addArc(withCenter: CGPoint(x: r.minX + tl, y: r.minY + tl), radius: tl,
+                 startAngle: .pi, endAngle: 3 * .pi / 2, clockwise: true)
+        p.close()
+        let m = (bg.layer.mask as? CAShapeLayer) ?? CAShapeLayer()
+        m.path = p.cgPath
+        bg.layer.mask = m
     }
 
     private func updateColors(pressed: Bool = false) {
