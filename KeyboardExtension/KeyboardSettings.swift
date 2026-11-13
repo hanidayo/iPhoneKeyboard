@@ -6,7 +6,7 @@ enum KeyboardSettings {
 
     static let multitapOptions: [Double] = [0.5, 0.8, 1.0, 1.2]
     static let swipeOptions: [CGFloat] = [14, 9, 6]          // 느리게 / 보통 / 빠르게
-    static let rowHeightOptions: [CGFloat] = [50, 54, 58]    // 낮게 / 보통 / 높게
+    static let rowHeightOptions: [CGFloat] = [52, 56, 60]    // 낮게 / 보통 / 높게
 
     static var multitapIndex: Int {
         get { d.object(forKey: "multitapIndex") as? Int ?? 1 }

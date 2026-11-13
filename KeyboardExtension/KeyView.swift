@@ -137,6 +137,8 @@ final class KeyView: UIView {
 
     /// 길게 누르기/드래그를 추적하는 첫 번째 손가락. 그 사이 같은 키를 다른 손가락으로 또 누르면 바로 입력.
     private weak var primary: UITouch?
+    /// 아직 손가락이 안 떨어져서 입력이 대기 중인 키 (키보드 전체에서 하나)
+    private static weak var pendingKey: KeyView?
     private var primaryStart = Date()
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -151,6 +153,10 @@ final class KeyView: UIView {
     }
 
     private func beginPrimary(_ t: UITouch) {
+        // 누른 순서대로 입력: 다른 키가 아직 대기 중이면 그 키를 먼저 입력 처리
+        // (두 손가락이 겹칠 때 뒤에 누른 키가 먼저 떨어져서 ㆍㅣ 순서가 뒤바뀌던 문제)
+        if let other = KeyView.pendingKey, other !== self { other.flushPending() }
+        KeyView.pendingKey = self
         primary = t
         primaryStart = Date()
         startX = t.location(in: self).x
@@ -202,7 +208,14 @@ final class KeyView: UIView {
         if let p = primary, touches.contains(p) { finishPrimary(fire: false) }
     }
 
+    /// 다른 키가 눌렸을 때 호출: 커서 이동(드래그) 중이 아니면 지금 입력 처리
+    private func flushPending() {
+        guard primary != nil, !dragging else { return }
+        finishPrimary(fire: true)
+    }
+
     private func finishPrimary(fire: Bool) {
+        if KeyView.pendingKey === self { KeyView.pendingKey = nil }
         longTimer?.invalidate(); longTimer = nil
         repeatTimer?.invalidate(); repeatTimer = nil
         updateColors(pressed: false)

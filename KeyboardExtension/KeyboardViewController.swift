@@ -38,9 +38,10 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: 크기
 
-    // iOS 순정 키보드와 키 위치·아래 끝이 맞도록 맞춘 값
-    private let toolbarHeight: CGFloat = 31
-    private var keyboardHeight: CGFloat { toolbarHeight + KeyboardSettings.rowHeight * 4 }
+    private let toolbarHeight: CGFloat = 44
+    /// 맨 아래 줄 키의 아래 여백을 없애서 키 아래 끝을 iOS 순정 키보드와 맞춤
+    private let bottomBleed: CGFloat = 5.5
+    private var keyboardHeight: CGFloat { toolbarHeight + KeyboardSettings.rowHeight * 4 - bottomBleed }
 
     // MARK: 상태
 
@@ -54,6 +55,7 @@ final class KeyboardViewController: UIInputViewController {
     private let toolbar = ToolbarView()
     private let content = UIView()
     private var heightConstraint: NSLayoutConstraint?
+    private var contentHeightConstraint: NSLayoutConstraint?
     private lazy var emojiPanel: EmojiPanelView = makeEmojiPanel()
     private lazy var clipboardPanel: ClipboardPanelView = makeClipboardPanel()
     private lazy var settingsPanel: SettingsPanelView = makeSettingsPanel()
@@ -92,16 +94,22 @@ final class KeyboardViewController: UIInputViewController {
             v.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(v)
         }
+        // 아래에서부터 고정 크기로 쌓음: iOS가 키보드 높이를 잠깐 다르게 줘도
+        // 키와 툴바 위치·크기는 그대로 (위쪽 여백만 달라짐)
+        let contentHeight = content.heightAnchor.constraint(equalToConstant: KeyboardSettings.rowHeight * 4)
+        contentHeightConstraint = contentHeight
         NSLayoutConstraint.activate([
-            toolbar.topAnchor.constraint(equalTo: view.topAnchor),
-            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: toolbarHeight),
-            content.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             content.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             content.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            contentHeight,
+            toolbar.bottomAnchor.constraint(equalTo: content.topAnchor),
+            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            toolbar.heightAnchor.constraint(equalToConstant: toolbarHeight),
         ])
+        // 키보드 높이를 시스템이 확실히 따르도록
+        (inputView ?? view as? UIInputView)?.allowsSelfSizing = true
         let h = view.heightAnchor.constraint(equalToConstant: keyboardHeight)
         h.priority = .required - 1
         h.isActive = true
@@ -186,6 +194,7 @@ final class KeyboardViewController: UIInputViewController {
         engine.multitapTimeout = KeyboardSettings.multitapTimeout
         KeyView.dragStep = KeyboardSettings.swipeStep
         heightConstraint?.constant = keyboardHeight
+        contentHeightConstraint?.constant = KeyboardSettings.rowHeight * 4 - bottomBleed
     }
 
     private func refreshClipboard() {
@@ -214,7 +223,7 @@ final class KeyboardViewController: UIInputViewController {
         content.addSubview(v)
         NSLayoutConstraint.activate([
             v.topAnchor.constraint(equalTo: content.topAnchor),
-            v.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            v.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: bottomBleed),
             v.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 3),
             v.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -3),
         ])
