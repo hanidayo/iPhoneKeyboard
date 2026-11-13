@@ -36,6 +36,13 @@ enum KeyboardSettings {
     private static func clamp(_ i: Int, _ n: Int) -> Int { min(max(i, 0), n - 1) }
 }
 
+/// 지금 시스템 클립보드에 들어 있는 것
+enum ClipContent {
+    case none
+    case text(String)
+    case image(UIImage)
+}
+
 /// 복사한 글 기록. 시스템 클립보드는 '전체 접근 허용'일 때만 읽을 수 있다.
 enum ClipboardStore {
     private static let d = UserDefaults.standard
@@ -60,6 +67,28 @@ enum ClipboardStore {
               !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         add(s)
         return true
+    }
+
+    /// 지금 클립보드 내용 (사진이면 작은 미리보기)
+    static func current(hasFullAccess: Bool) -> ClipContent {
+        guard hasFullAccess else { return .none }
+        let pb = UIPasteboard.general
+        if pb.hasStrings, let s = pb.string,
+           !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .text(s)
+        }
+        if pb.hasImages, let img = pb.image {
+            let size = CGSize(width: 24, height: 24)
+            let thumb = UIGraphicsImageRenderer(size: size).image { _ in
+                UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 5).addClip()
+                // 가운데를 꽉 채우도록 잘라서 그림
+                let scale = max(size.width / img.size.width, size.height / img.size.height)
+                let w = img.size.width * scale, h = img.size.height * scale
+                img.draw(in: CGRect(x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h))
+            }
+            return .image(thumb.withRenderingMode(.alwaysOriginal))
+        }
+        return .none
     }
 
     static func add(_ s: String) {

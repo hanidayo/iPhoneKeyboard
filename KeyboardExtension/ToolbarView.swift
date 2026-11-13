@@ -12,6 +12,10 @@ final class ToolbarView: UIView {
     private let clipButton = ToolbarView.iconButton("list.clipboard")
     private let dismissButton = ToolbarView.iconButton("keyboard.chevron.compact.down")
     private let chip = UIButton(type: .system)
+    private let spacer = UIView()
+    private let hintLabel = UILabel()
+    private var content: ClipContent = .none
+    private var hintTimer: Timer?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -33,7 +37,17 @@ final class ToolbarView: UIView {
         dismissButton.addTarget(self, action: #selector(tapDismiss), for: .touchUpInside)
         chip.addTarget(self, action: #selector(tapChip), for: .touchUpInside)
 
-        let stack = UIStackView(arrangedSubviews: [settingsButton, clipButton, chip, dismissButton])
+        // 클립보드가 비어 있으면 칩을 숨기고 빈 공간이 대신 늘어남
+        spacer.setContentHuggingPriority(UILayoutPriority(251), for: .horizontal)
+        chip.setContentHuggingPriority(UILayoutPriority(250), for: .horizontal)
+        chip.isHidden = true
+
+        hintLabel.font = .systemFont(ofSize: 13)
+        hintLabel.textColor = Palette.hint
+        hintLabel.textAlignment = .center
+        hintLabel.isHidden = true
+
+        let stack = UIStackView(arrangedSubviews: [settingsButton, clipButton, chip, hintLabel, spacer, dismissButton])
         stack.axis = .horizontal
         stack.spacing = 4
         stack.alignment = .center
@@ -54,25 +68,45 @@ final class ToolbarView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 최근 복사한 글 표시 갱신
-    func update(latest: String?, hasFullAccess: Bool) {
-        let title: String
-        if !hasFullAccess {
-            title = "클립보드: 설정에서 '전체 접근 허용' 필요"
-            chip.isEnabled = false
-        } else if let latest {
-            let oneLine = latest.replacingOccurrences(of: "\n", with: " ")
-                .trimmingCharacters(in: .whitespaces)
-            title = String(oneLine.prefix(60))
-            chip.isEnabled = true
-        } else {
-            title = "복사한 글이 여기 표시돼요"
-            chip.isEnabled = false
+    /// 클립보드 칩 갱신: 글이나 사진이 있을 때만 보임
+    func update(clip: ClipContent) {
+        content = clip
+        var title = ""
+        var image: UIImage?
+        switch clip {
+        case .none:
+            chip.isHidden = true
+            return
+        case .text(let t):
+            title = String(t.replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespaces).prefix(60))
+            image = UIImage(systemName: "doc.on.clipboard",
+                            withConfiguration: UIImage.SymbolConfiguration(pointSize: 12))
+        case .image(let thumb):
+            title = "사진 붙여넣기"
+            image = thumb
         }
         var attr = AttributedString(title)
         attr.font = UIFont.systemFont(ofSize: 14)
         chip.configuration?.attributedTitle = attr
+        chip.configuration?.image = image
+        chip.isHidden = !hintLabel.isHidden
     }
+
+    /// 칩 자리에 잠깐 안내 문구 표시
+    func showHint(_ text: String) {
+        hintTimer?.invalidate()
+        hintLabel.text = text
+        hintLabel.isHidden = false
+        chip.isHidden = true
+        hintTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.hintLabel.isHidden = true
+            self.update(clip: self.content)
+        }
+    }
+
+    var currentClip: ClipContent { content }
 
     private static func iconButton(_ name: String) -> UIButton {
         let b = UIButton(type: .system)

@@ -63,6 +63,9 @@ final class KeyboardViewController: UIInputViewController {
     private weak var shiftKey: KeyView?
     private let haptic = UIImpactFeedbackGenerator(style: .light)
     private var clipTimer: Timer?
+    private var seenChangeCount = -1
+    /// 키를 누를 때마다 증가. 빠르게 칠 때 커서 확인을 미루는 데 씀
+    private var keySerial = 0
 
     // MARK: 생명주기
 
@@ -74,7 +77,16 @@ final class KeyboardViewController: UIInputViewController {
         toolbar.onSettings = { [weak self] in self?.toggle(.settings) }
         toolbar.onClipboard = { [weak self] in self?.toggle(.clipboard) }
         toolbar.onPasteLatest = { [weak self] in
-            if let s = ClipboardStore.items.first { self?.insertPlain(s) }
+            guard let self else { return }
+            switch self.toolbar.currentClip {
+            case .text(let t):
+                self.insertPlain(t)
+            case .image:
+                // iOS 키보드는 사진을 직접 넣을 수 없음 → 사진은 이미 클립보드에 있으니 입력창에서 붙여넣기
+                self.toolbar.showHint("입력창을 길게 눌러 '붙여넣기' 하세요")
+            case .none:
+                break
+            }
         }
         toolbar.onDismiss = { [weak self] in self?.dismissKeyboard() }
 
@@ -106,6 +118,7 @@ final class KeyboardViewController: UIInputViewController {
         applyAppearance()
         applySettings()
         if hasFullAccess { haptic.prepare() }
+        seenChangeCount = -1
         refreshClipboard()
         // 키보드가 떠 있는 동안 다른 곳에서 복사하면 바로 툴바에 보이도록
         clipTimer?.invalidate()
@@ -123,12 +136,22 @@ final class KeyboardViewController: UIInputViewController {
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         applyAppearance()
-        breakCompositionIfCursorMoved()
+        scheduleCursorCheck()
     }
 
     override func selectionDidChange(_ textInput: UITextInput?) {
         super.selectionDidChange(textInput)
-        breakCompositionIfCursorMoved()
+        scheduleCursorCheck()
+    }
+
+    /// 빠르게 칠 때는 앱이 알려주는 문서 내용이 한 박자 늦게 와서, 바로 확인하면
+    /// 조합이 잘못 끊겨 오타가 났다. 키 입력이 0.4초 멈췄을 때만 확인한다.
+    private func scheduleCursorCheck() {
+        let serial = keySerial
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self, self.keySerial == serial else { return }
+            self.breakCompositionIfCursorMoved()
+        }
     }
 
     /// 사용자가 커서를 옮기거나 앱이 입력창을 비우면 조합을 끊는다
@@ -149,8 +172,15 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func refreshClipboard() {
-        let changed = ClipboardStore.refresh(hasFullAccess: hasFullAccess)
-        toolbar.update(latest: ClipboardStore.items.first, hasFullAccess: hasFullAccess)
+        guard hasFullAccess else {
+            toolbar.update(clip: .none)
+            return
+        }
+        let count = UIPasteboard.general.changeCount
+        guard count != seenChangeCount else { return }
+        seenChangeCount = count
+        let changed = ClipboardStore.refresh(hasFullAccess: true)
+        toolbar.update(clip: ClipboardStore.current(hasFullAccess: true))
         if changed, mode == .clipboard { clipboardPanel.reload() }
     }
 
@@ -225,7 +255,8 @@ final class KeyboardViewController: UIInputViewController {
         r3.add(consonantKey("ㅂㅍ", cycle: "ㅂㅍㅃ", number: "7"))
         r3.add(consonantKey("ㅅㅎ", cycle: "ㅅㅎㅆ", number: "8"))
         r3.add(consonantKey("ㅈㅊ", cycle: "ㅈㅊㅉ", number: "9"))
-        r3.add(punctuationKey())
+        r3.add(arrowKey(), weight: 0.5)
+        r3.add(punctuationKey(), weight: 0.5)
 
         let r4 = RowView()
         r4.add(symbolsKey(), weight: 0.5)
@@ -271,8 +302,21 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    /// → 키: 조합 중이면 글자를 끝내고(같은 자음 연속 입력용), 아니면 커서를 한 칸 오른쪽으로
+    private func arrowKey() -> KeyView {
+        key(symbol: "arrow.right", symbolSize: 16, style: .function) { [weak self] in
+            guard let self else { return }
+            self.resetPunct()
+            if self.engine.isComposing {
+                self.engine.finish()
+            } else {
+                self.textDocumentProxy.adjustTextPosition(byCharacterOffset: 1)
+            }
+        }
+    }
+
     private func punctuationKey() -> KeyView {
-        key(".,?!", style: .function, size: 17) { [weak self] in self?.handlePunct() }
+        key(".,?!", style: .function, size: 15) { [weak self] in self?.handlePunct() }
     }
 
     private func symbolsKey() -> KeyView {
@@ -513,6 +557,7 @@ final class KeyboardViewController: UIInputViewController {
     // MARK: 소리·진동 (전체 접근 허용을 켰을 때만 동작)
 
     private func feedback() {
+        keySerial += 1
         guard hasFullAccess else { return }
         if KeyboardSettings.haptic { haptic.impactOccurred() }
         if KeyboardSettings.sound { AudioServicesPlaySystemSound(1104) }
