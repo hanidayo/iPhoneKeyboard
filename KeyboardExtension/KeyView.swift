@@ -52,7 +52,8 @@ final class KeyView: UIView {
     private var dragging = false
 
     static let dragThreshold: CGFloat = 12
-    static let dragStep: CGFloat = 9
+    /// 커서 1칸 이동 거리 (설정에서 바뀜)
+    static var dragStep: CGFloat = 9
 
     init(title: String? = nil, hint: String? = nil, symbol: String? = nil, style: KeyStyle = .letter,
          fontSize: CGFloat = 22) {
@@ -81,7 +82,7 @@ final class KeyView: UIView {
         hintLabel.text = hint
         bg.addSubview(hintLabel)
 
-        iconView.contentMode = .scaleAspectFit
+        iconView.contentMode = .center   // 아이콘을 키 크기에 맞춰 키우지 않음
         iconView.tintColor = Palette.text
         bg.addSubview(iconView)
 
@@ -97,10 +98,13 @@ final class KeyView: UIView {
         titleLabel.isHidden = (t == nil)
     }
 
+    /// 기능키 아이콘 크기
+    var symbolSize: CGFloat = 17
+
     func setSymbol(_ name: String?) {
         if let name {
             iconView.image = UIImage(systemName: name,
-                                     withConfiguration: UIImage.SymbolConfiguration(pointSize: 19, weight: .regular))
+                                     withConfiguration: UIImage.SymbolConfiguration(pointSize: symbolSize, weight: .light))
             iconView.isHidden = false
         } else {
             iconView.isHidden = true
@@ -113,7 +117,7 @@ final class KeyView: UIView {
         super.layoutSubviews()
         bg.frame = bounds.insetBy(dx: 3, dy: 4)
         titleLabel.frame = bg.bounds.insetBy(dx: 4, dy: 2)
-        iconView.frame = bg.bounds.insetBy(dx: 6, dy: 6)
+        iconView.frame = bg.bounds
         hintLabel.sizeToFit()
         hintLabel.frame.origin = CGPoint(x: bg.bounds.width - hintLabel.bounds.width - 5, y: 2)
     }

@@ -34,17 +34,13 @@ final class RowsView: UIView {
 
 final class KeyboardViewController: UIInputViewController {
 
-    private enum Mode { case korean, english, symbols, emoji }
+    private enum Mode { case korean, english, symbols, emoji, clipboard, settings }
     private enum Shift { case off, once, locked }
 
-    // MARK: 설정값
+    // MARK: 크기
 
-    /// 키보드 높이 (아래 마이크/지구본 줄 제외)
-    private let keyboardHeight: CGFloat = 228
-    /// 키 누를 때 진동 / 소리 (둘 다 '전체 접근 허용'을 켜야 동작)
-    private let enableHaptic = true
-    private let enableSound = false
-    // 스페이스 드래그 감도는 KeyView.dragStep, 연타 간격은 ChunjiinEngine.multitapTimeout
+    private let toolbarHeight: CGFloat = 40
+    private var keyboardHeight: CGFloat { toolbarHeight + KeyboardSettings.rowHeight * 4 + 6 }
 
     // MARK: 상태
 
@@ -57,30 +53,50 @@ final class KeyboardViewController: UIInputViewController {
     private var punctIndex = -1
     private var punctTime = Date.distantPast
 
-    private let container = UIView()
+    private let toolbar = ToolbarView()
+    private let content = UIView()
     private var heightConstraint: NSLayoutConstraint?
     private lazy var emojiPanel: EmojiPanelView = makeEmojiPanel()
+    private lazy var clipboardPanel: ClipboardPanelView = makeClipboardPanel()
+    private lazy var settingsPanel: SettingsPanelView = makeSettingsPanel()
     private var letterKeys: [(KeyView, String)] = []
     private weak var shiftKey: KeyView?
     private let haptic = UIImpactFeedbackGenerator(style: .light)
+    private var clipTimer: Timer?
 
     // MARK: 생명주기
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        container.backgroundColor = Palette.background
-        container.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(container)
+        // 배경은 투명: iOS 키보드 배경(유리 효과)이 그대로 보여서 위쪽 둥근 부분과 색이 맞음
+        view.backgroundColor = .clear
+
+        toolbar.onSettings = { [weak self] in self?.toggle(.settings) }
+        toolbar.onClipboard = { [weak self] in self?.toggle(.clipboard) }
+        toolbar.onPasteLatest = { [weak self] in
+            if let s = ClipboardStore.items.first { self?.insertPlain(s) }
+        }
+        toolbar.onDismiss = { [weak self] in self?.dismissKeyboard() }
+
+        for v in [toolbar, content] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(v)
+        }
         NSLayoutConstraint.activate([
-            container.topAnchor.constraint(equalTo: view.topAnchor),
-            container.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            container.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            container.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            toolbar.topAnchor.constraint(equalTo: view.topAnchor),
+            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            toolbar.heightAnchor.constraint(equalToConstant: toolbarHeight),
+            content.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
+            content.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
         let h = view.heightAnchor.constraint(equalToConstant: keyboardHeight)
         h.priority = .required - 1
         h.isActive = true
         heightConstraint = h
+        applySettings()
         rebuild()
     }
 
@@ -88,7 +104,20 @@ final class KeyboardViewController: UIInputViewController {
         super.viewWillAppear(animated)
         engine.finish()
         applyAppearance()
+        applySettings()
         if hasFullAccess { haptic.prepare() }
+        refreshClipboard()
+        // 키보드가 떠 있는 동안 다른 곳에서 복사하면 바로 툴바에 보이도록
+        clipTimer?.invalidate()
+        clipTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.refreshClipboard()
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        clipTimer?.invalidate()
+        clipTimer = nil
     }
 
     override func textDidChange(_ textInput: UITextInput?) {
@@ -113,33 +142,60 @@ final class KeyboardViewController: UIInputViewController {
         view.overrideUserInterfaceStyle = textDocumentProxy.keyboardAppearance == .dark ? .dark : .unspecified
     }
 
+    private func applySettings() {
+        engine.multitapTimeout = KeyboardSettings.multitapTimeout
+        KeyView.dragStep = KeyboardSettings.swipeStep
+        heightConstraint?.constant = keyboardHeight
+    }
+
+    private func refreshClipboard() {
+        let changed = ClipboardStore.refresh(hasFullAccess: hasFullAccess)
+        toolbar.update(latest: ClipboardStore.items.first, hasFullAccess: hasFullAccess)
+        if changed, mode == .clipboard { clipboardPanel.reload() }
+    }
+
     // MARK: 화면 구성
 
     private func rebuild() {
-        container.subviews.forEach { $0.removeFromSuperview() }
+        content.subviews.forEach { $0.removeFromSuperview() }
         letterKeys = []
-        let content: UIView
+        let v: UIView
         switch mode {
-        case .korean: content = buildKorean()
-        case .english: content = buildEnglish()
-        case .symbols: content = buildSymbols()
+        case .korean: v = buildKorean()
+        case .english: v = buildEnglish()
+        case .symbols: v = buildSymbols()
         case .emoji:
             emojiPanel.reload()
-            content = emojiPanel
+            v = emojiPanel
+        case .clipboard:
+            clipboardPanel.reload()
+            v = clipboardPanel
+        case .settings:
+            settingsPanel.update(hasFullAccess: hasFullAccess)
+            v = settingsPanel
         }
-        content.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(content)
+        v.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(v)
         NSLayoutConstraint.activate([
-            content.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
-            content.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -2),
-            content.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 3),
-            content.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -3),
+            v.topAnchor.constraint(equalTo: content.topAnchor),
+            v.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -4),
+            v.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 3),
+            v.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -3),
         ])
     }
 
-    private func key(_ title: String? = nil, hint: String? = nil, symbol: String? = nil,
+    /// 툴바 버튼: 같은 버튼을 다시 누르면 자판으로 돌아감
+    private func toggle(_ m: Mode) {
+        feedback()
+        engine.finish()
+        switchMode(mode == m ? lastLanguage : m)
+    }
+
+    private func key(_ title: String? = nil, hint: String? = nil, symbol: String? = nil, symbolSize: CGFloat = 17,
                      style: KeyStyle = .letter, size: CGFloat = 22, tap: (() -> Void)? = nil) -> KeyView {
-        let k = KeyView(title: title, hint: hint, symbol: symbol, style: style, fontSize: size)
+        let k = KeyView(title: title, hint: hint, symbol: nil, style: style, fontSize: size)
+        k.symbolSize = symbolSize
+        k.setSymbol(symbol)
         k.onTap = tap
         k.onTouchDown = { [weak self] in self?.feedback() }
         return k
@@ -204,19 +260,19 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func deleteKey() -> KeyView {
-        let k = key(symbol: "delete.left", style: .function)
+        let k = key(symbol: "delete.left", symbolSize: 18, style: .function)
         k.onRepeat = { [weak self] in self?.handleDelete() }
         return k
     }
 
     private func returnKey() -> KeyView {
-        key(symbol: "return", style: .function) { [weak self] in
+        key(symbol: "return.left", symbolSize: 17, style: .function) { [weak self] in
             self?.insertPlain("\n")
         }
     }
 
     private func punctuationKey() -> KeyView {
-        key(".,?!", style: .function, size: 20) { [weak self] in self?.handlePunct() }
+        key(".,?!", style: .function, size: 17) { [weak self] in self?.handlePunct() }
     }
 
     private func symbolsKey() -> KeyView {
@@ -237,7 +293,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func emojiKey() -> KeyView {
-        key(symbol: "face.smiling", style: .function) { [weak self] in
+        key(symbol: "face.smiling", symbolSize: 19, style: .function) { [weak self] in
             self?.engine.finish()
             self?.switchMode(.emoji)
         }
@@ -245,7 +301,7 @@ final class KeyboardViewController: UIInputViewController {
 
     /// 스페이스: 탭하면 띄어쓰기, 좌우로 밀면 커서 이동 (갤럭시 순정처럼)
     private func spaceKey() -> KeyView {
-        let k = key(symbol: "space", style: .letter) { [weak self] in self?.handleSpace() }
+        let k = key(symbol: "space", symbolSize: 15, style: .letter) { [weak self] in self?.handleSpace() }
         k.onDragBegan = { [weak self] in
             self?.engine.finish()
             self?.resetPunct()
@@ -351,6 +407,30 @@ final class KeyboardViewController: UIInputViewController {
         return p
     }
 
+    private func makeClipboardPanel() -> ClipboardPanelView {
+        let p = ClipboardPanelView()
+        p.onPick = { [weak self] text in
+            guard let self else { return }
+            self.insertPlain(text)
+            self.switchMode(self.lastLanguage)
+        }
+        p.onBack = { [weak self] in
+            guard let self else { return }
+            self.switchMode(self.lastLanguage)
+        }
+        return p
+    }
+
+    private func makeSettingsPanel() -> SettingsPanelView {
+        let p = SettingsPanelView()
+        p.onChange = { [weak self] in self?.applySettings() }
+        p.onBack = { [weak self] in
+            guard let self else { return }
+            self.switchMode(self.lastLanguage)
+        }
+        return p
+    }
+
     private func switchMode(_ m: Mode) {
         if m == .korean || m == .english { lastLanguage = m }
         mode = m
@@ -434,7 +514,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func feedback() {
         guard hasFullAccess else { return }
-        if enableHaptic { haptic.impactOccurred() }
-        if enableSound { AudioServicesPlaySystemSound(1104) }
+        if KeyboardSettings.haptic { haptic.impactOccurred() }
+        if KeyboardSettings.sound { AudioServicesPlaySystemSound(1104) }
     }
 }
