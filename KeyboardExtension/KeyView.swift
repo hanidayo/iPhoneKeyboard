@@ -52,6 +52,8 @@ final class KeyView: UIView {
     private var dragging = false
 
     static let dragThreshold: CGFloat = 20
+    /// 키 위아래 여백 (키 사이 세로 간격 = 2배)
+    static let verticalInset: CGFloat = 3.5
     /// 커서 1칸 이동 거리 (설정에서 바뀜)
     static var dragStep: CGFloat = 9
 
@@ -115,7 +117,7 @@ final class KeyView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        bg.frame = bounds.insetBy(dx: 3, dy: 5.5)   // iOS 순정과 비슷한 키 간격
+        bg.frame = bounds.insetBy(dx: 3, dy: Self.verticalInset)
         titleLabel.frame = bg.bounds.insetBy(dx: 4, dy: 2)
         iconView.frame = bg.bounds
         hintLabel.sizeToFit()

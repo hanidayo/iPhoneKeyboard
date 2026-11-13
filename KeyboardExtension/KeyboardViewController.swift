@@ -40,7 +40,8 @@ final class KeyboardViewController: UIInputViewController {
 
     private let toolbarHeight: CGFloat = 44
     /// 맨 아래 줄 키의 아래 여백을 없애서 키 아래 끝을 iOS 순정 키보드와 맞춤
-    private let bottomBleed: CGFloat = 5.5
+    /// 맨 아래 키의 여백만큼 + iOS가 서드파티 키보드 아래에 더 두는 약 4pt만큼 내림
+    private let bottomBleed: CGFloat = KeyView.verticalInset + 4
     private var keyboardHeight: CGFloat { toolbarHeight + KeyboardSettings.rowHeight * 4 - bottomBleed }
 
     // MARK: 상태
@@ -71,6 +72,8 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidLoad()
         // 배경은 투명: iOS 키보드 배경(유리 효과)이 그대로 보여서 위쪽 둥근 부분과 색이 맞음
         view.backgroundColor = .clear
+        view.clipsToBounds = false   // 맨 아래 키를 순정 위치까지 내리기 위해 살짝 밖으로 그림
+        content.clipsToBounds = false
 
         toolbar.onSettings = { [weak self] in self?.toggle(.settings) }
         toolbar.onClipboard = { [weak self] in self?.toggle(.clipboard) }
