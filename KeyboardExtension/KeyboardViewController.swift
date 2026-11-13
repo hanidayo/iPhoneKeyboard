@@ -38,8 +38,9 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: 크기
 
-    private let toolbarHeight: CGFloat = 40
-    private var keyboardHeight: CGFloat { toolbarHeight + KeyboardSettings.rowHeight * 4 + 6 }
+    // iOS 순정 키보드와 키 위치·아래 끝이 맞도록 맞춘 값
+    private let toolbarHeight: CGFloat = 31
+    private var keyboardHeight: CGFloat { toolbarHeight + KeyboardSettings.rowHeight * 4 }
 
     // MARK: 상태
 
@@ -58,7 +59,7 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var settingsPanel: SettingsPanelView = makeSettingsPanel()
     private let haptic = UIImpactFeedbackGenerator(style: .light)
     private var clipTimer: Timer?
-    private var seenChangeCount = -1
+    private var lastKeyTime = Date.distantPast
     /// 키를 누를 때마다 증가. 빠르게 칠 때 커서 확인을 미루는 데 씀
     private var keySerial = 0
 
@@ -74,8 +75,9 @@ final class KeyboardViewController: UIInputViewController {
         toolbar.onPasteLatest = { [weak self] in
             guard let self else { return }
             switch self.toolbar.currentClip {
-            case .text(let t):
-                self.insertPlain(t)
+            case .text:
+                // 누를 때만 읽음 (iOS '붙여넣기 허용' 창은 이때만 뜰 수 있음)
+                if let t = ClipboardStore.readTextAndRemember() { self.insertPlain(t) }
             case .image:
                 // iOS 키보드는 사진을 직접 넣을 수 없음 → 사진은 이미 클립보드에 있으니 입력창에서 붙여넣기
                 self.toolbar.showHint("입력창을 길게 눌러 '붙여넣기' 하세요")
@@ -114,13 +116,15 @@ final class KeyboardViewController: UIInputViewController {
         applyAppearance()
         applySettings()
         if hasFullAccess { haptic.prepare() }
-        seenChangeCount = -1
         refreshClipboard()
         updateOTPHint()
         // 키보드가 떠 있는 동안 다른 곳에서 복사하면 바로 툴바에 보이도록
         clipTimer?.invalidate()
         clipTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.refreshClipboard()
+            guard let self else { return }
+            // 타이핑 중에는 클립보드 확인을 쉬어서 입력이 밀리지 않게
+            if Date().timeIntervalSince(self.lastKeyTime) < 1.5 { return }
+            self.refreshClipboard()
         }
     }
 
@@ -152,9 +156,19 @@ final class KeyboardViewController: UIInputViewController {
     private func scheduleCursorCheck() {
         let serial = keySerial
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            guard let self, self.keySerial == serial else { return }
-            self.breakCompositionIfCursorMoved()
+            guard let self, self.keySerial == serial, self.cursorLooksMoved() else { return }
+            // 앱이 내용을 늦게 알려주는 경우가 있어 한 번 더 확인한 뒤에만 조합을 끊음
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                guard let self, self.keySerial == serial, self.cursorLooksMoved() else { return }
+                self.engine.finish()
+            }
         }
+    }
+
+    private func cursorLooksMoved() -> Bool {
+        guard engine.isComposing else { return false }
+        let before = textDocumentProxy.documentContextBeforeInput ?? ""
+        return !before.hasSuffix(engine.display)
     }
 
     /// 사용자가 커서를 옮기거나 앱이 입력창을 비우면 조합을 끊는다
@@ -175,16 +189,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func refreshClipboard() {
-        guard hasFullAccess else {
-            toolbar.update(clip: .none)
-            return
-        }
-        let count = UIPasteboard.general.changeCount
-        guard count != seenChangeCount else { return }
-        seenChangeCount = count
-        let changed = ClipboardStore.refresh(hasFullAccess: true)
-        toolbar.update(clip: ClipboardStore.current(hasFullAccess: true))
-        if changed, mode == .clipboard { clipboardPanel.reload() }
+        toolbar.update(clip: ClipboardStore.chipState(hasFullAccess: hasFullAccess))
     }
 
     // MARK: 화면 구성
@@ -209,7 +214,7 @@ final class KeyboardViewController: UIInputViewController {
         content.addSubview(v)
         NSLayoutConstraint.activate([
             v.topAnchor.constraint(equalTo: content.topAnchor),
-            v.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -4),
+            v.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             v.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 3),
             v.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -3),
         ])
@@ -234,8 +239,8 @@ final class KeyboardViewController: UIInputViewController {
 
     // 갤럭시 천지인 배열
     //  ㅣ   ㆍ   ㅡ   ⌫
-    //  ㄱㅋ ㄴㄹ ㄷㅌ .,?!
-    //  ㅂㅍ ㅅㅎ ㅈㅊ →
+    //  ㄱㅋ ㄴㄹ ㄷㅌ →
+    //  ㅂㅍ ㅅㅎ ㅈㅊ .,?!
     //  !#1 😊 ㅇㅁ ⎵ ↵   (영문은 iOS 기본 키보드 사용)
     private func buildKorean() -> UIView {
         let rows = RowsView()
@@ -250,13 +255,13 @@ final class KeyboardViewController: UIInputViewController {
         r2.add(consonantKey("ㄱㅋ", cycle: "ㄱㅋㄲ", number: "4"))
         r2.add(consonantKey("ㄴㄹ", cycle: "ㄴㄹ", number: "5"))
         r2.add(consonantKey("ㄷㅌ", cycle: "ㄷㅌㄸ", number: "6"))
-        r2.add(punctuationKey())
+        r2.add(arrowKey())
 
         let r3 = RowView()
         r3.add(consonantKey("ㅂㅍ", cycle: "ㅂㅍㅃ", number: "7"))
         r3.add(consonantKey("ㅅㅎ", cycle: "ㅅㅎㅆ", number: "8"))
         r3.add(consonantKey("ㅈㅊ", cycle: "ㅈㅊㅉ", number: "9"))
-        r3.add(arrowKey())
+        r3.add(punctuationKey())
 
         let r4 = RowView()
         r4.add(symbolsKey(), weight: 0.5)
@@ -450,7 +455,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func handleSpace() {
         resetPunct()
-        if engine.spaceShouldOnlyBreak() { return }   // 같은 자음 연속 입력용 끊기
+        engine.finish()   // 스페이스는 항상 띄어쓰기 (글자 끊기는 → 키)
         textDocumentProxy.insertText(" ")
     }
 
@@ -484,6 +489,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func feedback() {
         keySerial += 1
+        lastKeyTime = Date()
         guard hasFullAccess else { return }
         if KeyboardSettings.haptic { haptic.impactOccurred() }
         if KeyboardSettings.sound { AudioServicesPlaySystemSound(1104) }

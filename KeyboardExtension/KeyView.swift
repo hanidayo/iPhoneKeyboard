@@ -51,7 +51,7 @@ final class KeyView: UIView {
     private var lastStepX: CGFloat = 0
     private var dragging = false
 
-    static let dragThreshold: CGFloat = 12
+    static let dragThreshold: CGFloat = 20
     /// 커서 1칸 이동 거리 (설정에서 바뀜)
     static var dragStep: CGFloat = 9
 
@@ -59,7 +59,7 @@ final class KeyView: UIView {
          fontSize: CGFloat = 22) {
         self.style = style
         super.init(frame: .zero)
-        isMultipleTouchEnabled = false
+        isMultipleTouchEnabled = true
 
         bg.layer.cornerRadius = 7
         bg.layer.cornerCurve = .continuous
@@ -115,7 +115,7 @@ final class KeyView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        bg.frame = bounds.insetBy(dx: 3, dy: 4)
+        bg.frame = bounds.insetBy(dx: 3, dy: 5.5)   // iOS 순정과 비슷한 키 간격
         titleLabel.frame = bg.bounds.insetBy(dx: 4, dy: 2)
         iconView.frame = bg.bounds
         hintLabel.sizeToFit()
@@ -135,14 +135,29 @@ final class KeyView: UIView {
 
     // MARK: - 터치
 
+    /// 길게 누르기/드래그를 추적하는 첫 번째 손가락. 그 사이 같은 키를 다른 손가락으로 또 누르면 바로 입력.
+    private weak var primary: UITouch?
+    private var primaryStart = Date()
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let t = touches.first else { return }
+        for t in touches {
+            onTouchDown?()
+            if primary != nil {
+                // 빠르게 칠 때 앞 손가락이 아직 안 떨어진 상태 → 앞 입력을 먼저 처리하고 새 터치를 주 터치로
+                finishPrimary(fire: true)
+            }
+            beginPrimary(t)
+        }
+    }
+
+    private func beginPrimary(_ t: UITouch) {
+        primary = t
+        primaryStart = Date()
         startX = t.location(in: self).x
         lastStepX = startX
         dragging = false
         longFired = false
         updateColors(pressed: true)
-        onTouchDown?()
 
         if let onRepeat {
             onRepeat()
@@ -161,16 +176,18 @@ final class KeyView: UIView {
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard onDragStep != nil, let t = touches.first else { return }
-        let x = t.location(in: self).x
-        if !dragging, abs(x - startX) > Self.dragThreshold {
+        guard onDragStep != nil, let t = primary, touches.contains(t) else { return }
+        let p = t.location(in: self)
+        // 빠르게 칠 때 살짝 미끄러진 건 탭으로 처리: 충분히(가로로) 움직였을 때만 커서 이동 시작
+        if !dragging, abs(p.x - startX) > Self.dragThreshold,
+           Date().timeIntervalSince(primaryStart) > 0.08 {
             dragging = true
-            lastStepX = x
+            lastStepX = p.x
             longTimer?.invalidate()
             onDragBegan?()
         }
         guard dragging else { return }
-        let steps = Int((x - lastStepX) / Self.dragStep)
+        let steps = Int((p.x - lastStepX) / Self.dragStep)
         if steps != 0 {
             lastStepX += CGFloat(steps) * Self.dragStep
             onDragStep?(steps)
@@ -178,19 +195,21 @@ final class KeyView: UIView {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        finishTouch(fire: true)
+        if let p = primary, touches.contains(p) { finishPrimary(fire: true) }
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        finishTouch(fire: false)
+        if let p = primary, touches.contains(p) { finishPrimary(fire: false) }
     }
 
-    private func finishTouch(fire: Bool) {
+    private func finishPrimary(fire: Bool) {
         longTimer?.invalidate(); longTimer = nil
         repeatTimer?.invalidate(); repeatTimer = nil
         updateColors(pressed: false)
-        defer { dragging = false; longFired = false }
-        guard fire, onRepeat == nil, !dragging, !longFired else { return }
-        onTap?()
+        let shouldFire = fire && onRepeat == nil && !dragging && !longFired
+        primary = nil
+        dragging = false
+        longFired = false
+        if shouldFire { onTap?() }
     }
 }
