@@ -1,0 +1,53 @@
+name: GalaxyKeyboard
+options:
+  bundleIdPrefix: com.hani
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    TARGETED_DEVICE_FAMILY: "1"
+    # Xcode에서 Signing & Capabilities → Team을 고르면 자동으로 채워짐
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  GalaxyKeyboard:
+    type: application
+    platform: iOS
+    sources: [HostApp]
+    info:
+      path: HostApp/Info.plist
+      properties:
+        CFBundleDisplayName: 갤럭시 천지인
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hani.galaxykeyboard
+    dependencies:
+      - target: ChunjiinKeyboard
+    scheme: {}
+
+  ChunjiinKeyboard:
+    type: app-extension
+    platform: iOS
+    sources: [KeyboardExtension]
+    info:
+      path: KeyboardExtension/Info.plist
+      properties:
+        CFBundleDisplayName: 갤럭시 천지인
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+          NSExtensionAttributes:
+            IsASCIICapable: false
+            PrefersRightToLeft: false
+            PrimaryLanguage: ko-KR
+            # true여야 설정에서 '전체 접근 허용'(진동)을 켤 수 있음. 켜지 않으면 진동만 빠짐.
+            RequestsOpenAccess: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hani.galaxykeyboard.keyboard
