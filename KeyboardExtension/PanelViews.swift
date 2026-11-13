@@ -24,100 +24,6 @@ private func textButton(_ title: String, bold: Bool = false) -> UIButton {
     return b
 }
 
-// MARK: - 클립보드 기록
-
-final class ClipboardPanelView: UIView, UITableViewDataSource, UITableViewDelegate {
-
-    var onPick: ((String) -> Void)?
-    var onBack: (() -> Void)?
-
-    private let table = UITableView(frame: .zero, style: .plain)
-    private let empty = UILabel()
-    private var items: [String] = []
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        let back = textButton("‹ 키보드")
-        back.contentHorizontalAlignment = .leading
-        back.addTarget(self, action: #selector(tapBack), for: .touchUpInside)
-        let clear = textButton("전체 삭제")
-        clear.contentHorizontalAlignment = .trailing
-        clear.addTarget(self, action: #selector(tapClear), for: .touchUpInside)
-        let header = panelHeader(title: "클립보드", back: back, right: clear)
-
-        table.backgroundColor = .clear
-        table.dataSource = self
-        table.delegate = self
-        table.rowHeight = 44
-        table.register(UITableViewCell.self, forCellReuseIdentifier: "c")
-
-        empty.text = "복사한 글이 없어요.\n다른 앱에서 복사하면 여기에 쌓여요."
-        empty.numberOfLines = 0
-        empty.textAlignment = .center
-        empty.font = .systemFont(ofSize: 14)
-        empty.textColor = Palette.hint
-
-        for v in [header, table, empty] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
-        }
-        NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: topAnchor),
-            header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            header.heightAnchor.constraint(equalToConstant: 34),
-            table.topAnchor.constraint(equalTo: header.bottomAnchor),
-            table.leadingAnchor.constraint(equalTo: leadingAnchor),
-            table.trailingAnchor.constraint(equalTo: trailingAnchor),
-            table.bottomAnchor.constraint(equalTo: bottomAnchor),
-            empty.centerXAnchor.constraint(equalTo: table.centerXAnchor),
-            empty.centerYAnchor.constraint(equalTo: table.centerYAnchor),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    func reload() {
-        items = ClipboardStore.items
-        empty.isHidden = !items.isEmpty
-        table.reloadData()
-    }
-
-    @objc private func tapBack() { onBack?() }
-    @objc private func tapClear() {
-        ClipboardStore.clear()
-        reload()
-    }
-
-    func tableView(_ tv: UITableView, numberOfRowsInSection section: Int) -> Int { items.count }
-
-    func tableView(_ tv: UITableView, cellForRowAt ip: IndexPath) -> UITableViewCell {
-        let cell = tv.dequeueReusableCell(withIdentifier: "c", for: ip)
-        var c = cell.defaultContentConfiguration()
-        c.text = items[ip.row].replacingOccurrences(of: "\n", with: " ")
-        c.textProperties.numberOfLines = 1
-        c.textProperties.font = .systemFont(ofSize: 15)
-        cell.contentConfiguration = c
-        cell.backgroundColor = .clear
-        return cell
-    }
-
-    func tableView(_ tv: UITableView, didSelectRowAt ip: IndexPath) {
-        tv.deselectRow(at: ip, animated: true)
-        onPick?(items[ip.row])
-    }
-
-    func tableView(_ tv: UITableView,
-                   trailingSwipeActionsConfigurationForRowAt ip: IndexPath) -> UISwipeActionsConfiguration? {
-        let del = UIContextualAction(style: .destructive, title: "삭제") { [weak self] _, _, done in
-            ClipboardStore.remove(at: ip.row)
-            self?.reload()
-            done(true)
-        }
-        return UISwipeActionsConfiguration(actions: [del])
-    }
-}
-
 // MARK: - 설정
 
 final class SettingsPanelView: UIView {
@@ -186,8 +92,8 @@ final class SettingsPanelView: UIView {
 
     func update(hasFullAccess: Bool) {
         fullAccessNote.text = hasFullAccess
-            ? "전체 접근 허용: 켜짐 (진동·소리·클립보드 사용 가능)"
-            : "진동·키 소리·클립보드는 아이폰 설정 → 일반 → 키보드 → 키보드 → 갤럭시 천지인 → '전체 접근 허용'을 켜야 동작해요."
+            ? "전체 접근 허용: 켜짐 (진동·소리 사용 가능)"
+            : "진동·키 소리는 아이폰 설정 → 일반 → 키보드 → 키보드 → 갤럭시 천지인 → '전체 접근 허용'을 켜야 동작해요."
     }
 
     @objc private func tapBack() { onBack?() }

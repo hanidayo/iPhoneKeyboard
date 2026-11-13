@@ -34,14 +34,14 @@ final class RowsView: UIView {
 
 final class KeyboardViewController: UIInputViewController {
 
-    private enum Mode { case korean, symbols, emoji, clipboard, settings }
+    private enum Mode { case korean, symbols, emoji, settings }
 
     // MARK: 크기
 
     private let toolbarHeight: CGFloat = 32   // 순정 추천 단어 줄과 비슷한 높이
     /// 맨 아래 줄 키의 아래 여백을 없애서 키 아래 끝을 iOS 순정 키보드와 맞춤
-    /// 맨 아래 키의 여백만큼 + iOS가 서드파티 키보드 아래에 더 두는 약 4pt만큼 내림
-    private let bottomBleed: CGFloat = KeyView.verticalInset + 4
+    /// 맨 아래 키의 아래 여백을 없애 키 아래 끝 = 키보드 영역 아래 끝
+    private let bottomBleed: CGFloat = KeyView.verticalInset
     private var keyboardHeight: CGFloat { toolbarHeight + KeyboardSettings.rowHeight * 4 - bottomBleed }
 
     // MARK: 상태
@@ -58,11 +58,8 @@ final class KeyboardViewController: UIInputViewController {
     private var heightConstraint: NSLayoutConstraint?
     private var contentHeightConstraint: NSLayoutConstraint?
     private lazy var emojiPanel: EmojiPanelView = makeEmojiPanel()
-    private lazy var clipboardPanel: ClipboardPanelView = makeClipboardPanel()
     private lazy var settingsPanel: SettingsPanelView = makeSettingsPanel()
     private let haptic = UIImpactFeedbackGenerator(style: .light)
-    private var clipTimer: Timer?
-    private var lastKeyTime = Date.distantPast
     /// 키를 누를 때마다 증가. 빠르게 칠 때 커서 확인을 미루는 데 씀
     private var keySerial = 0
 
@@ -72,24 +69,8 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidLoad()
         // 배경은 투명: iOS 키보드 배경(유리 효과)이 그대로 보여서 위쪽 둥근 부분과 색이 맞음
         view.backgroundColor = .clear
-        view.clipsToBounds = false   // 맨 아래 키를 순정 위치까지 내리기 위해 살짝 밖으로 그림
-        content.clipsToBounds = false
 
         toolbar.onSettings = { [weak self] in self?.toggle(.settings) }
-        toolbar.onClipboard = { [weak self] in self?.toggle(.clipboard) }
-        toolbar.onPasteLatest = { [weak self] in
-            guard let self else { return }
-            switch self.toolbar.currentClip {
-            case .text:
-                // 누를 때만 읽음 (iOS '붙여넣기 허용' 창은 이때만 뜰 수 있음)
-                if let t = ClipboardStore.readTextAndRemember() { self.insertPlain(t) }
-            case .image:
-                // iOS 키보드는 사진을 직접 넣을 수 없음 → 사진은 이미 클립보드에 있으니 입력창에서 붙여넣기
-                self.toolbar.showHint("입력창을 길게 눌러 '붙여넣기' 하세요")
-            case .none:
-                break
-            }
-        }
         toolbar.onDismiss = { [weak self] in self?.dismissKeyboard() }
         toolbar.onOTP = { [weak self] in self?.advanceToNextInputMode() }
 
@@ -111,6 +92,10 @@ final class KeyboardViewController: UIInputViewController {
             toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             toolbar.heightAnchor.constraint(equalToConstant: toolbarHeight),
         ])
+        // 위에서 아래까지 크기가 정해지도록 이어줌 → iOS가 이 크기로 키보드 높이를 계산 (높이 출렁임 방지)
+        let top = toolbar.topAnchor.constraint(equalTo: view.topAnchor)
+        top.priority = .required - 1
+        top.isActive = true
         // 키보드 높이를 시스템이 확실히 따르도록
         (inputView ?? view as? UIInputView)?.allowsSelfSizing = true
         let h = view.heightAnchor.constraint(equalToConstant: keyboardHeight)
@@ -127,22 +112,7 @@ final class KeyboardViewController: UIInputViewController {
         applyAppearance()
         applySettings()
         if hasFullAccess { haptic.prepare() }
-        refreshClipboard()
         updateOTPHint()
-        // 키보드가 떠 있는 동안 다른 곳에서 복사하면 바로 툴바에 보이도록
-        clipTimer?.invalidate()
-        clipTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            // 타이핑 중에는 클립보드 확인을 쉬어서 입력이 밀리지 않게
-            if Date().timeIntervalSince(self.lastKeyTime) < 1.5 { return }
-            self.refreshClipboard()
-        }
-    }
-
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        clipTimer?.invalidate()
-        clipTimer = nil
     }
 
     override func textDidChange(_ textInput: UITextInput?) {
@@ -200,10 +170,6 @@ final class KeyboardViewController: UIInputViewController {
         contentHeightConstraint?.constant = KeyboardSettings.rowHeight * 4 - bottomBleed
     }
 
-    private func refreshClipboard() {
-        toolbar.update(clip: ClipboardStore.chipState(hasFullAccess: hasFullAccess))
-    }
-
     // MARK: 화면 구성
 
     private func rebuild() {
@@ -215,9 +181,6 @@ final class KeyboardViewController: UIInputViewController {
         case .emoji:
             emojiPanel.reload()
             v = emojiPanel
-        case .clipboard:
-            clipboardPanel.reload()
-            v = clipboardPanel
         case .settings:
             settingsPanel.update(hasFullAccess: hasFullAccess)
             v = settingsPanel
@@ -420,20 +383,6 @@ final class KeyboardViewController: UIInputViewController {
         return p
     }
 
-    private func makeClipboardPanel() -> ClipboardPanelView {
-        let p = ClipboardPanelView()
-        p.onPick = { [weak self] text in
-            guard let self else { return }
-            self.insertPlain(text)
-            self.switchMode(self.lastLanguage)
-        }
-        p.onBack = { [weak self] in
-            guard let self else { return }
-            self.switchMode(self.lastLanguage)
-        }
-        return p
-    }
-
     private func makeSettingsPanel() -> SettingsPanelView {
         let p = SettingsPanelView()
         p.onChange = { [weak self] in self?.applySettings() }
@@ -501,7 +450,6 @@ final class KeyboardViewController: UIInputViewController {
 
     private func feedback() {
         keySerial += 1
-        lastKeyTime = Date()
         guard hasFullAccess else { return }
         if KeyboardSettings.haptic { haptic.impactOccurred() }
         if KeyboardSettings.sound { AudioServicesPlaySystemSound(1104) }
