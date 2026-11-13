@@ -38,7 +38,7 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: 크기
 
-    private let toolbarHeight: CGFloat = 44
+    private let toolbarHeight: CGFloat = 32   // 순정 추천 단어 줄과 비슷한 높이
     /// 맨 아래 줄 키의 아래 여백을 없애서 키 아래 끝을 iOS 순정 키보드와 맞춤
     /// 맨 아래 키의 여백만큼 + iOS가 서드파티 키보드 아래에 더 두는 약 4pt만큼 내림
     private let bottomBleed: CGFloat = KeyView.verticalInset + 4
