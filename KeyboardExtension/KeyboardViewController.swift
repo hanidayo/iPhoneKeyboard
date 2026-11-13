@@ -34,8 +34,7 @@ final class RowsView: UIView {
 
 final class KeyboardViewController: UIInputViewController {
 
-    private enum Mode { case korean, english, symbols, emoji, clipboard, settings }
-    private enum Shift { case off, once, locked }
+    private enum Mode { case korean, symbols, emoji, clipboard, settings }
 
     // MARK: 크기
 
@@ -47,8 +46,6 @@ final class KeyboardViewController: UIInputViewController {
     private let engine = ChunjiinEngine()
     private var mode: Mode = .korean
     private var lastLanguage: Mode = .korean
-    private var shift: Shift = .off
-    private var lastShiftTap = Date.distantPast
     private var symbolPage = 0
     private var punctIndex = -1
     private var punctTime = Date.distantPast
@@ -59,8 +56,6 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var emojiPanel: EmojiPanelView = makeEmojiPanel()
     private lazy var clipboardPanel: ClipboardPanelView = makeClipboardPanel()
     private lazy var settingsPanel: SettingsPanelView = makeSettingsPanel()
-    private var letterKeys: [(KeyView, String)] = []
-    private weak var shiftKey: KeyView?
     private let haptic = UIImpactFeedbackGenerator(style: .light)
     private var clipTimer: Timer?
     private var seenChangeCount = -1
@@ -89,6 +84,7 @@ final class KeyboardViewController: UIInputViewController {
             }
         }
         toolbar.onDismiss = { [weak self] in self?.dismissKeyboard() }
+        toolbar.onOTP = { [weak self] in self?.advanceToNextInputMode() }
 
         for v in [toolbar, content] {
             v.translatesAutoresizingMaskIntoConstraints = false
@@ -120,6 +116,7 @@ final class KeyboardViewController: UIInputViewController {
         if hasFullAccess { haptic.prepare() }
         seenChangeCount = -1
         refreshClipboard()
+        updateOTPHint()
         // 키보드가 떠 있는 동안 다른 곳에서 복사하면 바로 툴바에 보이도록
         clipTimer?.invalidate()
         clipTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -136,7 +133,13 @@ final class KeyboardViewController: UIInputViewController {
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         applyAppearance()
+        updateOTPHint()
         scheduleCursorCheck()
+    }
+
+    /// 앱이 '인증번호' 칸으로 지정한 입력창이면 툴바에 기본 키보드 전환 버튼 표시
+    private func updateOTPHint() {
+        toolbar.setOTPMode(textDocumentProxy.textContentType == .oneTimeCode)
     }
 
     override func selectionDidChange(_ textInput: UITextInput?) {
@@ -188,11 +191,9 @@ final class KeyboardViewController: UIInputViewController {
 
     private func rebuild() {
         content.subviews.forEach { $0.removeFromSuperview() }
-        letterKeys = []
         let v: UIView
         switch mode {
         case .korean: v = buildKorean()
-        case .english: v = buildEnglish()
         case .symbols: v = buildSymbols()
         case .emoji:
             emojiPanel.reload()
@@ -233,9 +234,9 @@ final class KeyboardViewController: UIInputViewController {
 
     // 갤럭시 천지인 배열
     //  ㅣ   ㆍ   ㅡ   ⌫
-    //  ㄱㅋ ㄴㄹ ㄷㅌ ↵
-    //  ㅂㅍ ㅅㅎ ㅈㅊ .,?!
-    //  !#1 한/영 ㅇㅁ ⎵ 😊
+    //  ㄱㅋ ㄴㄹ ㄷㅌ .,?!
+    //  ㅂㅍ ㅅㅎ ㅈㅊ →
+    //  !#1 😊 ㅇㅁ ⎵ ↵   (영문은 iOS 기본 키보드 사용)
     private func buildKorean() -> UIView {
         let rows = RowsView()
 
@@ -249,21 +250,20 @@ final class KeyboardViewController: UIInputViewController {
         r2.add(consonantKey("ㄱㅋ", cycle: "ㄱㅋㄲ", number: "4"))
         r2.add(consonantKey("ㄴㄹ", cycle: "ㄴㄹ", number: "5"))
         r2.add(consonantKey("ㄷㅌ", cycle: "ㄷㅌㄸ", number: "6"))
-        r2.add(returnKey())
+        r2.add(punctuationKey())
 
         let r3 = RowView()
         r3.add(consonantKey("ㅂㅍ", cycle: "ㅂㅍㅃ", number: "7"))
         r3.add(consonantKey("ㅅㅎ", cycle: "ㅅㅎㅆ", number: "8"))
         r3.add(consonantKey("ㅈㅊ", cycle: "ㅈㅊㅉ", number: "9"))
-        r3.add(arrowKey(), weight: 0.5)
-        r3.add(punctuationKey(), weight: 0.5)
+        r3.add(arrowKey())
 
         let r4 = RowView()
         r4.add(symbolsKey(), weight: 0.5)
-        r4.add(languageKey(), weight: 0.5)
+        r4.add(emojiKey(symbolSize: 17), weight: 0.5)
         r4.add(consonantKey("ㅇㅁ", cycle: "ㅇㅁ", number: "0"))
         r4.add(spaceKey())
-        r4.add(emojiKey())
+        r4.add(returnKey())
 
         [r1, r2, r3, r4].forEach { rows.addSubview($0) }
         return rows
@@ -316,7 +316,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func punctuationKey() -> KeyView {
-        key(".,?!", style: .function, size: 15) { [weak self] in self?.handlePunct() }
+        key(".,?!", style: .function, size: 17) { [weak self] in self?.handlePunct() }
     }
 
     private func symbolsKey() -> KeyView {
@@ -328,16 +328,8 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    private func languageKey() -> KeyView {
-        key("한/영", style: .function, size: 14) { [weak self] in
-            guard let self else { return }
-            self.engine.finish()
-            self.switchMode(self.mode == .korean ? .english : .korean)
-        }
-    }
-
-    private func emojiKey() -> KeyView {
-        key(symbol: "face.smiling", symbolSize: 19, style: .function) { [weak self] in
+    private func emojiKey(symbolSize: CGFloat = 19) -> KeyView {
+        key(symbol: "face.smiling", symbolSize: symbolSize, style: .function) { [weak self] in
             self?.engine.finish()
             self?.switchMode(.emoji)
         }
@@ -356,50 +348,13 @@ final class KeyboardViewController: UIInputViewController {
         return k
     }
 
-    // 영문 쿼티
-    private func buildEnglish() -> UIView {
-        let rows = RowsView()
-        let lines = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
-
-        let r1 = RowView()
-        for ch in lines[0] { r1.add(letterKey(String(ch))) }
-
-        let r2 = RowView()
-        r2.add(UIView(), weight: 0.5)
-        for ch in lines[1] { r2.add(letterKey(String(ch))) }
-        r2.add(UIView(), weight: 0.5)
-
-        let r3 = RowView()
-        let sk = key(symbol: shift == .locked ? "capslock.fill" : (shift == .once ? "shift.fill" : "shift"),
-                     style: shift == .off ? .function : .accent) { [weak self] in self?.handleShift() }
-        shiftKey = sk
-        r3.add(sk, weight: 1.5)
-        for ch in lines[2] { r3.add(letterKey(String(ch))) }
-        r3.add(deleteKey(), weight: 1.5)
-
-        let r4 = RowView()
-        r4.add(symbolsKey(), weight: 1.25)
-        r4.add(languageKey(), weight: 1.25)
-        r4.add(spaceKey(), weight: 4.5)
-        r4.add(key(".", style: .function) { [weak self] in self?.insertPlain(".") }, weight: 1.25)
-        r4.add(emojiKey(), weight: 1.25)
-        r4.add(returnKey(), weight: 1.5)
-
-        [r1, r2, r3, r4].forEach { rows.addSubview($0) }
-        refreshLetterCase()
-        return rows
-    }
-
-    private func letterKey(_ ch: String) -> KeyView {
-        let k = key(ch, size: 23) { [weak self] in self?.handleLetter(ch) }
-        letterKeys.append((k, ch))
-        return k
-    }
-
     // 숫자·기호
-    private static let symbolPages: [[String]] = [
-        ["1234567890", "!@#$%^&*()", "-'\":;,?/"],
-        ["+×÷=_<>[]{}", "€£¥₩°•○●※♥", "~`|\\…·★☆"],
+    // 숫자·기호 (iOS 순정 배열)
+    private static let symbolPages: [[[String]]] = [
+        [["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+         ["-", "/", ":", ";", "(", ")", "₩", "&", "@", "\""]],
+        [["[", "]", "{", "}", "#", "%", "^", "*", "+", "="],
+         ["_", "\\", "|", "~", "<", ">", "$", "£", "¥", "•"]],
     ]
 
     private func buildSymbols() -> UIView {
@@ -407,28 +362,25 @@ final class KeyboardViewController: UIInputViewController {
         let page = Self.symbolPages[symbolPage]
 
         let r1 = RowView()
-        for ch in page[0] { r1.add(charKey(String(ch))) }
+        for ch in page[0] { r1.add(charKey(ch)) }
         let r2 = RowView()
-        for ch in page[1] { r2.add(charKey(String(ch))) }
+        for ch in page[1] { r2.add(charKey(ch)) }
 
         let r3 = RowView()
-        r3.add(key("\(symbolPage + 1)/2", style: .function, size: 15) { [weak self] in
+        r3.add(key(symbolPage == 0 ? "#+=" : "123", style: .function, size: 15) { [weak self] in
             guard let self else { return }
             self.symbolPage = 1 - self.symbolPage
             self.rebuild()
-        }, weight: 1.5)
-        for ch in page[2] { r3.add(charKey(String(ch))) }
-        r3.add(deleteKey(), weight: 1.5)
+        }, weight: 1.3)
+        for ch in [".", ",", "?", "!", "'"] { r3.add(charKey(ch), weight: 1.45) }
+        r3.add(deleteKey(), weight: 1.3)
 
         let r4 = RowView()
-        r4.add(key(lastLanguage == .korean ? "가" : "abc", style: .function, size: 17) { [weak self] in
-            guard let self else { return }
-            self.switchMode(self.lastLanguage)
-        }, weight: 1.5)
-        r4.add(key(",", style: .function) { [weak self] in self?.insertPlain(",") }, weight: 1.1)
-        r4.add(spaceKey(), weight: 4.5)
-        r4.add(key(".", style: .function) { [weak self] in self?.insertPlain(".") }, weight: 1.1)
-        r4.add(returnKey(), weight: 1.5)
+        r4.add(key("한글", style: .function, size: 16) { [weak self] in
+            self?.switchMode(.korean)
+        }, weight: 2.4)
+        r4.add(spaceKey(), weight: 4.8)
+        r4.add(returnKey(), weight: 2.4)
 
         [r1, r2, r3, r4].forEach { rows.addSubview($0) }
         return rows
@@ -476,7 +428,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func switchMode(_ m: Mode) {
-        if m == .korean || m == .english { lastLanguage = m }
+        if m == .korean { lastLanguage = m }
         mode = m
         resetPunct()
         rebuild()
@@ -527,32 +479,6 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func resetPunct() { punctIndex = -1 }
-
-    private func handleLetter(_ ch: String) {
-        resetPunct()
-        textDocumentProxy.insertText(shift == .off ? ch : ch.uppercased())
-        if shift == .once {
-            shift = .off
-            refreshLetterCase()
-        }
-    }
-
-    private func handleShift() {
-        let now = Date()
-        switch shift {
-        case .off: shift = .once
-        case .once: shift = now.timeIntervalSince(lastShiftTap) < 0.35 ? .locked : .off
-        case .locked: shift = .off
-        }
-        lastShiftTap = now
-        refreshLetterCase()
-    }
-
-    private func refreshLetterCase() {
-        for (k, ch) in letterKeys { k.setTitle(shift == .off ? ch : ch.uppercased()) }
-        shiftKey?.style = shift == .off ? .function : .accent
-        shiftKey?.setSymbol(shift == .locked ? "capslock.fill" : (shift == .once ? "shift.fill" : "shift"))
-    }
 
     // MARK: 소리·진동 (전체 접근 허용을 켰을 때만 동작)
 
