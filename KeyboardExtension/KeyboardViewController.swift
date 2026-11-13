@@ -37,12 +37,10 @@ final class KeyboardViewController: UIInputViewController {
     private enum Mode { case korean, symbols, emoji, settings }
 
     // MARK: 크기
+    // 높이는 정하지 않고 iOS 기본 키보드 높이를 그대로 씀 → 키보드가 뜰 때 출렁임 없음
 
-    private let toolbarHeight: CGFloat = 32   // 순정 추천 단어 줄과 비슷한 높이
-    /// 맨 아래 줄 키의 아래 여백을 없애서 키 아래 끝을 iOS 순정 키보드와 맞춤
     /// 맨 아래 키의 아래 여백을 없애 키 아래 끝 = 키보드 영역 아래 끝
     private let bottomBleed: CGFloat = KeyView.verticalInset
-    private var keyboardHeight: CGFloat { toolbarHeight + KeyboardSettings.rowHeight * 4 - bottomBleed }
 
     // MARK: 상태
 
@@ -53,10 +51,9 @@ final class KeyboardViewController: UIInputViewController {
     private var punctIndex = -1
     private var punctTime = Date.distantPast
 
-    private let toolbar = ToolbarView()
     private let content = UIView()
-    private var heightConstraint: NSLayoutConstraint?
-    private var contentHeightConstraint: NSLayoutConstraint?
+    private weak var spaceKeyView: KeyView?
+    private var otpField = false
     private lazy var emojiPanel: EmojiPanelView = makeEmojiPanel()
     private lazy var settingsPanel: SettingsPanelView = makeSettingsPanel()
     private let haptic = UIImpactFeedbackGenerator(style: .light)
@@ -70,38 +67,14 @@ final class KeyboardViewController: UIInputViewController {
         // 배경은 투명: iOS 키보드 배경(유리 효과)이 그대로 보여서 위쪽 둥근 부분과 색이 맞음
         view.backgroundColor = .clear
 
-        toolbar.onSettings = { [weak self] in self?.toggle(.settings) }
-        toolbar.onDismiss = { [weak self] in self?.dismissKeyboard() }
-        toolbar.onOTP = { [weak self] in self?.advanceToNextInputMode() }
-
-        for v in [toolbar, content] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview(v)
-        }
-        // 아래에서부터 고정 크기로 쌓음: iOS가 키보드 높이를 잠깐 다르게 줘도
-        // 키와 툴바 위치·크기는 그대로 (위쪽 여백만 달라짐)
-        let contentHeight = content.heightAnchor.constraint(equalToConstant: KeyboardSettings.rowHeight * 4)
-        contentHeightConstraint = contentHeight
+        content.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(content)
         NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: view.topAnchor),
             content.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             content.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            contentHeight,
-            toolbar.bottomAnchor.constraint(equalTo: content.topAnchor),
-            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: toolbarHeight),
         ])
-        // 위에서 아래까지 크기가 정해지도록 이어줌 → iOS가 이 크기로 키보드 높이를 계산 (높이 출렁임 방지)
-        let top = toolbar.topAnchor.constraint(equalTo: view.topAnchor)
-        top.priority = .required - 1
-        top.isActive = true
-        // 키보드 높이를 시스템이 확실히 따르도록
-        (inputView ?? view as? UIInputView)?.allowsSelfSizing = true
-        let h = view.heightAnchor.constraint(equalToConstant: keyboardHeight)
-        h.priority = .required - 1
-        h.isActive = true
-        heightConstraint = h
         applySettings()
         rebuild()
     }
@@ -123,8 +96,22 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// 앱이 '인증번호' 칸으로 지정한 입력창이면 툴바에 기본 키보드 전환 버튼 표시
+    /// 인증번호 칸이면 스페이스바에 안내를 띄우고, 스페이스를 누르면 iOS 기본 키보드로 전환
     private func updateOTPHint() {
-        toolbar.setOTPMode(textDocumentProxy.textContentType == .oneTimeCode)
+        otpField = textDocumentProxy.textContentType == .oneTimeCode
+        refreshSpaceLabel()
+    }
+
+    private func refreshSpaceLabel() {
+        guard let k = spaceKeyView else { return }
+        if otpField {
+            k.setSymbol(nil)
+            k.setTitleFont(.systemFont(ofSize: 12, weight: .medium))
+            k.setTitle("🌐 인증번호 자동입력")
+        } else {
+            k.setTitle(nil)
+            k.setSymbol("space")
+        }
     }
 
     override func selectionDidChange(_ textInput: UITextInput?) {
@@ -166,8 +153,6 @@ final class KeyboardViewController: UIInputViewController {
     private func applySettings() {
         engine.multitapTimeout = KeyboardSettings.multitapTimeout
         KeyView.dragStep = KeyboardSettings.swipeStep
-        heightConstraint?.constant = keyboardHeight
-        contentHeightConstraint?.constant = KeyboardSettings.rowHeight * 4 - bottomBleed
     }
 
     // MARK: 화면 구성
@@ -308,11 +293,17 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    /// 😊: 탭 = 이모티콘, 길게 = 키보드 설정
     private func emojiKey(symbolSize: CGFloat = 19) -> KeyView {
-        key(symbol: "face.smiling", symbolSize: symbolSize, style: .function) { [weak self] in
+        let k = key(symbol: "face.smiling", symbolSize: symbolSize, style: .function) { [weak self] in
             self?.engine.finish()
             self?.switchMode(.emoji)
         }
+        k.onLongPress = { [weak self] in
+            self?.engine.finish()
+            self?.switchMode(.settings)
+        }
+        return k
     }
 
     /// 스페이스: 탭하면 띄어쓰기, 좌우로 밀면 커서 이동 (갤럭시 순정처럼)
@@ -325,6 +316,8 @@ final class KeyboardViewController: UIInputViewController {
         k.onDragStep = { [weak self] steps in
             self?.textDocumentProxy.adjustTextPosition(byCharacterOffset: steps)
         }
+        spaceKeyView = k
+        DispatchQueue.main.async { [weak self] in self?.refreshSpaceLabel() }
         return k
     }
 
@@ -415,6 +408,10 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func handleSpace() {
+        if otpField {
+            advanceToNextInputMode()
+            return
+        }
         resetPunct()
         engine.finish()   // 스페이스는 항상 띄어쓰기 (글자 끊기는 → 키)
         textDocumentProxy.insertText(" ")

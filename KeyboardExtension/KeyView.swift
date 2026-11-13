@@ -13,8 +13,9 @@ enum Palette {
     static let background = dyn(UIColor(red: 0.93, green: 0.93, blue: 0.95, alpha: 1),
                                 UIColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1))
     static let letter = dyn(.white, UIColor(red: 0.27, green: 0.27, blue: 0.29, alpha: 1))
-    static let function = dyn(UIColor(red: 0.85, green: 0.86, blue: 0.89, alpha: 1),
-                              UIColor(red: 0.19, green: 0.19, blue: 0.21, alpha: 1))
+    // 기능키: 글자키(흰색)·배경과 확실히 구분되는 진한 회색 (iOS 순정 기능키 색)
+    static let function = dyn(UIColor(red: 0.67, green: 0.69, blue: 0.74, alpha: 1),
+                              UIColor(red: 0.16, green: 0.16, blue: 0.18, alpha: 1))
     static let pressed = dyn(UIColor(red: 0.76, green: 0.78, blue: 0.82, alpha: 1),
                              UIColor(red: 0.40, green: 0.40, blue: 0.43, alpha: 1))
     static let accent = dyn(UIColor(red: 0.20, green: 0.45, blue: 0.95, alpha: 1),

@@ -53,8 +53,6 @@ final class SettingsPanelView: UIView {
                                            KeyboardSettings.multitapIndex) { KeyboardSettings.multitapIndex = $0 })
         rows.addArrangedSubview(segmentRow("스페이스 커서 이동", ["느리게", "보통", "빠르게"],
                                            KeyboardSettings.swipeIndex) { KeyboardSettings.swipeIndex = $0 })
-        rows.addArrangedSubview(segmentRow("키보드 높이", ["낮게", "보통", "높게"],
-                                           KeyboardSettings.heightIndex) { KeyboardSettings.heightIndex = $0 })
         rows.addArrangedSubview(switchRow("진동", KeyboardSettings.haptic) { KeyboardSettings.haptic = $0 })
         rows.addArrangedSubview(switchRow("키 소리", KeyboardSettings.sound) { KeyboardSettings.sound = $0 })
 
