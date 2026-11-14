@@ -79,6 +79,7 @@ final class SettingsPanelView: UIView {
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 150),
             rows.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             rows.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             rows.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor),

@@ -81,6 +81,8 @@ final class EmojiPanelView: UIView, UICollectionViewDataSource, UICollectionView
             collection.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             collection.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             collection.bottomAnchor.constraint(equalTo: bottomStack.topAnchor),
+            // 높이가 정해지지 않으면 iOS가 이 칸을 0으로 줄여 이모지가 안 보였음 → 최소 3줄 보장
+            collection.heightAnchor.constraint(greaterThanOrEqualToConstant: 126),
 
             bottomStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
             bottomStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -3),

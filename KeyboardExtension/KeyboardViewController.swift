@@ -53,6 +53,8 @@ final class KeyboardViewController: UIInputViewController {
 
     private let content = UIView()
     private weak var spaceKeyView: KeyView?
+    /// 한글 자판일 때 iOS가 준 키보드 높이. 이모티콘·설정 화면도 같은 높이로 맞춤
+    private var koreanHeight: CGFloat = 216
     private var otpField = false
     private lazy var emojiPanel: EmojiPanelView = makeEmojiPanel()
     private lazy var settingsPanel: SettingsPanelView = makeSettingsPanel()
@@ -155,6 +157,11 @@ final class KeyboardViewController: UIInputViewController {
         KeyView.dragStep = KeyboardSettings.swipeStep
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if mode == .korean, view.bounds.height > 150 { koreanHeight = view.bounds.height }
+    }
+
     // MARK: 화면 구성
 
     private func rebuild() {
@@ -178,6 +185,12 @@ final class KeyboardViewController: UIInputViewController {
             v.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 3),
             v.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -3),
         ])
+        if mode == .emoji || mode == .settings {
+            // 패널은 한글 자판과 같은 높이로 (키보드 높이가 바뀌어 출렁이지 않게)
+            let h = v.heightAnchor.constraint(equalToConstant: koreanHeight - 3)
+            h.priority = .defaultHigh
+            h.isActive = true
+        }
     }
 
     /// 툴바 버튼: 같은 버튼을 다시 누르면 자판으로 돌아감
