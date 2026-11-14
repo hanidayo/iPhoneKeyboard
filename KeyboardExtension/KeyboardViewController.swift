@@ -94,7 +94,18 @@ final class KeyboardViewController: UIInputViewController {
         super.textDidChange(textInput)
         applyAppearance()
         updateOTPHint()
+        // 카톡처럼 보내기 후 입력창이 비워지면 바로 조합을 끝냄
+        // (안 그러면 다음 글자를 칠 때 직전 메시지의 마지막 글자가 다시 들어갔음)
+        breakCompositionIfFieldCleared()
         scheduleCursorCheck()
+    }
+
+    /// 입력창이 완전히 비었는데 조합 중으로 남아 있으면 조합을 끝냄
+    private func breakCompositionIfFieldCleared() {
+        guard engine.isComposing else { return }
+        let before = textDocumentProxy.documentContextBeforeInput ?? ""
+        let after = textDocumentProxy.documentContextAfterInput ?? ""
+        if before.isEmpty && after.isEmpty { engine.finish() }
     }
 
     /// 앱이 '인증번호' 칸으로 지정한 입력창이면 툴바에 기본 키보드 전환 버튼 표시
@@ -252,6 +263,7 @@ final class KeyboardViewController: UIInputViewController {
         let k = key(title, hint: number, size: 26) { [weak self] in
             guard let self else { return }
             self.resetPunct()
+            self.breakCompositionIfFieldCleared()
             self.apply(self.engine.inputVowel(stroke))
         }
         k.onLongPress = { [weak self] in self?.insertPlain(number) }
@@ -263,6 +275,7 @@ final class KeyboardViewController: UIInputViewController {
         let k = key(title, hint: number, size: 22) { [weak self] in
             guard let self else { return }
             self.resetPunct()
+            self.breakCompositionIfFieldCleared()
             self.apply(self.engine.inputConsonant(key: title, cycle: chars))
         }
         k.onLongPress = { [weak self] in self?.insertPlain(number) }
@@ -440,6 +453,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func handleDelete() {
         resetPunct()
+        breakCompositionIfFieldCleared()
         if let edit = engine.backspace() {
             apply(edit)
         } else {
