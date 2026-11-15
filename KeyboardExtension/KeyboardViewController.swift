@@ -48,6 +48,10 @@ final class KeyboardViewController: UIInputViewController {
     private var mode: Mode = .korean
     private var lastLanguage: Mode = .korean
     private var symbolPage = 0
+    /// 같은 자음 연속 입력용 스페이스: (자음 키, 누른 시각).
+    /// 자음 직후 스페이스는 일단 띄어쓰기를 넣고, 바로 다음에 같은 자음 키를 누르면
+    /// 그 띄어쓰기를 지우고 새 글자로 시작 (안 ␣ ㄴ → 안녕). 스페이스 두 번 = 확실한 띄어쓰기.
+    private var spaceBreak: (key: String, time: Date)?
     private var punctIndex = -1
     private var punctTime = Date.distantPast
 
@@ -223,9 +227,9 @@ final class KeyboardViewController: UIInputViewController {
 
     // 갤럭시 천지인 배열
     //  ㅣ   ㆍ   ㅡ   ⌫
-    //  ㄱㅋ ㄴㄹ ㄷㅌ →
+    //  ㄱㅋ ㄴㄹ ㄷㅌ ↵
     //  ㅂㅍ ㅅㅎ ㅈㅊ .,?!
-    //  !#1 😊 ㅇㅁ ⎵ ↵   (영문은 iOS 기본 키보드 사용)
+    //  !#1  ㅇㅁ ⎵   😊   (영문은 iOS 기본 키보드 사용, 😊 길게 = 설정)
     private func buildKorean() -> UIView {
         let rows = RowsView()
 
@@ -240,7 +244,7 @@ final class KeyboardViewController: UIInputViewController {
         r2.add(consonantKey("ㄱㅋ", cycle: "ㄱㅋㄲ", number: "4"))
         r2.add(consonantKey("ㄴㄹ", cycle: "ㄴㄹ", number: "5"))
         r2.add(consonantKey("ㄷㅌ", cycle: "ㄷㅌㄸ", number: "6"))
-        r2.add(arrowKey())
+        r2.add(returnKey())
 
         let r3 = RowView()
         r3.add(consonantKey("ㅂㅍ", cycle: "ㅂㅍㅃ", number: "7"))
@@ -249,11 +253,10 @@ final class KeyboardViewController: UIInputViewController {
         r3.add(punctuationKey())
 
         let r4 = RowView()
-        r4.add(symbolsKey(), weight: 0.5)
-        r4.add(emojiKey(symbolSize: 17), weight: 0.5)
+        r4.add(symbolsKey())
         r4.add(consonantKey("ㅇㅁ", cycle: "ㅇㅁ", number: "0"))
         r4.add(spaceKey())
-        r4.add(returnKey())
+        r4.add(emojiKey())
 
         [r1, r2, r3, r4].forEach { rows.addSubview($0) }
         return rows
@@ -274,6 +277,10 @@ final class KeyboardViewController: UIInputViewController {
         let chars = Array(cycle)
         let k = key(title, hint: number, size: 22) { [weak self] in
             guard let self else { return }
+            if let sb = self.spaceBreak, sb.key == title,
+               Date().timeIntervalSince(sb.time) <= self.engine.multitapTimeout {
+                self.textDocumentProxy.deleteBackward()   // 끊기용으로 들어간 띄어쓰기 제거
+            }
             self.resetPunct()
             self.breakCompositionIfFieldCleared()
             self.apply(self.engine.inputConsonant(key: title, cycle: chars))
@@ -294,25 +301,12 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    /// → 키: 조합 중이면 글자를 끝내고(같은 자음 연속 입력용), 아니면 커서를 한 칸 오른쪽으로
-    private func arrowKey() -> KeyView {
-        key(symbol: "arrow.right", symbolSize: 16, style: .function) { [weak self] in
-            guard let self else { return }
-            self.resetPunct()
-            if self.engine.isComposing {
-                self.engine.finish()
-            } else {
-                self.textDocumentProxy.adjustTextPosition(byCharacterOffset: 1)
-            }
-        }
-    }
-
     private func punctuationKey() -> KeyView {
         key(".,?!", style: .function, size: 17) { [weak self] in self?.handlePunct() }
     }
 
     private func symbolsKey() -> KeyView {
-        key("!#1", style: .function, size: 15) { [weak self] in
+        key("!#1", style: .function, size: 17) { [weak self] in
             guard let self else { return }
             self.engine.finish()
             self.symbolPage = 0
@@ -446,9 +440,16 @@ final class KeyboardViewController: UIInputViewController {
             advanceToNextInputMode()
             return
         }
+        // 끊기용 스페이스 바로 뒤의 스페이스 = "진짜 띄어쓰기" 확정 (한 칸만 유지)
+        if let sb = spaceBreak, Date().timeIntervalSince(sb.time) <= engine.multitapTimeout {
+            spaceBreak = nil
+            return
+        }
         resetPunct()
-        engine.finish()   // 스페이스는 항상 띄어쓰기 (글자 끊기는 → 키)
+        let pendingKey = engine.pendingMultitapKey
+        engine.finish()
         textDocumentProxy.insertText(" ")
+        if let pendingKey { spaceBreak = (pendingKey, Date()) }
     }
 
     private func handleDelete() {
@@ -464,6 +465,7 @@ final class KeyboardViewController: UIInputViewController {
     /// .,?! 키: 연타하면 . → , → ? → ! 순환
     private func handlePunct() {
         engine.finish()
+        spaceBreak = nil
         let cycle = [".", ",", "?", "!"]
         let now = Date()
         if punctIndex >= 0, now.timeIntervalSince(punctTime) <= engine.multitapTimeout {
@@ -476,7 +478,10 @@ final class KeyboardViewController: UIInputViewController {
         punctTime = now
     }
 
-    private func resetPunct() { punctIndex = -1 }
+    private func resetPunct() {
+        punctIndex = -1
+        spaceBreak = nil
+    }
 
     // MARK: 소리·진동 (전체 접근 허용을 켰을 때만 동작)
 

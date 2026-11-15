@@ -110,6 +110,11 @@ final class ChunjiinEngine {
         lastKey != nil && Date().timeIntervalSince(lastTime) <= multitapTimeout
     }
 
+    /// 지금 연타가 이어질 수 있는 자음 키 (조합 중이고 연타 간격 안일 때)
+    var pendingMultitapKey: String? {
+        multitapAlive && !current.isEmpty ? lastKey : nil
+    }
+
     // MARK: - 입력
 
     /// 자음 키. `key`는 키 식별자, `cycle`은 연타 순서 (예: ["ㄱ","ㅋ","ㄲ"]).
